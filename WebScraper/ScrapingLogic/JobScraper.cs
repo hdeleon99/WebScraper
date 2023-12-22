@@ -222,30 +222,25 @@ namespace WebScraper.ScrapingLogic
         }
 
         /// <summary>
-        /// A helper method to extract the pay and job type.
+        /// A 
         /// </summary>
         /// <param name="section"></param>
         /// <param name="pay"></param>
         /// <param name="jobType"></param>
         private static void ExtractPayAndJobTypeFromSection(IWebElement section, ref string pay, ref string jobType)
         {
-            try
+            foreach (var div in section.FindElements(By.CssSelector("div")))
             {
-                var salaryInfoAndJobType = section.FindElement(By.CssSelector("#salaryInfoAndJobType"));
-
-                // Extract pay from the salaryInfoAndJobType section
-                var salaryElement = salaryInfoAndJobType.FindElement(By.CssSelector("span"));
-                pay = salaryElement.Text;
-
-                // Extract job type from the salaryInfoAndJobType section
-                var jobTypeElement = salaryInfoAndJobType.FindElement(By.XPath("span[2]"));
-                jobType = jobTypeElement.Text;
-            }
-            catch (NoSuchElementException ex)
-            {
-                //Console.WriteLine($"Error: {ex}");
-                pay = string.Empty;
-                jobType = string.Empty;
+                if (div.Text == "Pay")
+                {
+                    IWebElement payElement = div.FindElement(By.XPath("following-sibling::*"));
+                    pay = payElement.Text;
+                }
+                else if (div.Text == "Job Type")
+                {
+                    IWebElement jobTypeElement = div.FindElement(By.XPath("following-sibling::*"));
+                    jobType = jobTypeElement.Text;
+                }
             }
         }
 
