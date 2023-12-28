@@ -20,6 +20,7 @@ namespace WebScraper.ScrapingLogic
         /// <returns></returns>
         public List<JobDetails> GetJobs(string url)
         {
+            List<JobDetails> jobs = new List<JobDetails>();
 
             // these are used for the chrome process
             string command = @"C:\Program Files\Google\Chrome\Application\chrome.exe";
@@ -31,6 +32,8 @@ namespace WebScraper.ScrapingLogic
             driver.Navigate().GoToUrl(url);
             Thread.Sleep(3000);
 
+            // TODO -> need to add clicking logic to go to next page 
+
             var cardOutlines = driver.FindElements(By.CssSelector(".cardOutline"));
             foreach (var cardOutline in cardOutlines)
             {
@@ -38,8 +41,6 @@ namespace WebScraper.ScrapingLogic
                 PrintJobDetails(jobDetails);
                 Thread.Sleep(random.Next(2000, 4000));
             }
-            
-
 
             return null;
         }
