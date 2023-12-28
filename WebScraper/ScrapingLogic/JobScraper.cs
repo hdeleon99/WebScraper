@@ -4,6 +4,7 @@ using OpenQA.Selenium.Support.UI;
 using SeleniumExtras.WaitHelpers;
 using System.Data;
 using System.Diagnostics;
+using System.Text.RegularExpressions;
 
 namespace WebScraper.ScrapingLogic
 {
@@ -19,35 +20,31 @@ namespace WebScraper.ScrapingLogic
         /// <returns></returns>
         public List<JobDetails> GetJobs(string url)
         {
-            try
+
+            // these are used for the chrome process
+            string command = @"C:\Program Files\Google\Chrome\Application\chrome.exe";
+            string arguments = @"--remote-debugging-port=9222 --user-data-dir=""C:\Users\isaia\AppData\Local\Google\Chrome\User Data\Default""";
+
+            Process chromeProcess = StartProcess(command, arguments);
+
+            using var driver = CreateChromeDriver();
+            driver.Navigate().GoToUrl(url);
+            Thread.Sleep(3000);
+
+            var cardOutlines = driver.FindElements(By.CssSelector(".cardOutline"));
+            foreach (var cardOutline in cardOutlines)
             {
-                string command = @"C:\Program Files\Google\Chrome\Application\chrome.exe";
-                string arguments = @"--remote-debugging-port=9222 --user-data-dir=""C:\Users\isaia\AppData\Local\Google\Chrome\User Data\Default""";
-
-                Process chromeProcess = StartProcess(command, arguments);
-
-                using (var driver = CreateChromeDriver())
-                {
-                    driver.Navigate().GoToUrl(url);
-                    Thread.Sleep(3000);
-
-                    var cardOutlines = driver.FindElements(By.CssSelector(".cardOutline"));
-                    foreach (var cardOutline in cardOutlines)
-                    {
-                        JobDetails jobDetails = ExtractJobDetails(driver, cardOutline);
-                        PrintJobDetails(jobDetails);
-                        Thread.Sleep(random.Next(2000, 4000));
-                    }
-                }
+                JobDetails jobDetails = ExtractJobDetails(driver, cardOutline);
+                PrintJobDetails(jobDetails);
+                Thread.Sleep(random.Next(2000, 4000));
             }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Error: {ex}");
-            }
+            
+
 
             return null;
         }
 
+        #region Private Methods
         /// <summary>
         /// Processes the location text
         /// </summary>
@@ -70,8 +67,8 @@ namespace WebScraper.ScrapingLogic
                     result[1] = companyLocationElementTextArray[1].Trim();
 
                     // Output the results
-                 /* Console.WriteLine($"Location: {result[0]}");
-                    Console.WriteLine($"Location Type: {result[1]}");*/
+                    /* Console.WriteLine($"Location: {result[0]}");
+                       Console.WriteLine($"Location Type: {result[1]}");*/
                 }
                 else
                 {
@@ -138,6 +135,10 @@ namespace WebScraper.ScrapingLogic
                 var titleElement = wait.Until(ExpectedConditions.ElementExists(By.CssSelector(".jobsearch-JobInfoHeader-title")));
                 var title = titleElement.Text.Replace("\n- job post", "");
 
+                string dateText = ExtractDate(cardOutline);
+
+                var jobDetailsElement = driver.FindElement(By.CssSelector(".jobsearch-RightPane"));
+
                 var companyElement = driver.FindElement(By.CssSelector("div[data-company-name='true'] a"));
                 var company = companyElement.Text;
 
@@ -157,9 +158,15 @@ namespace WebScraper.ScrapingLogic
                     applyLink = string.Empty;
                 }
 
+                // get the pay and job type
                 var payJobType = ExtractPayAndJobType(driver);
                 string pay = payJobType.Item1;
                 string jobType = payJobType.Item2;
+
+                // get the description
+                string description = ExtractDescription(jobDetailsElement);
+
+                // get the date posted 
 
                 return new JobDetails
                 {
@@ -169,13 +176,85 @@ namespace WebScraper.ScrapingLogic
                     Mode = location[1],
                     Link = applyLink,
                     Salary = pay,
-                    Type = jobType
+                    Type = jobType,
+                    Description = RemoveExtraWhiteSpace(description),
+                    Date = dateText,
+                    
                 };
             }
             catch (NoSuchElementException ex)
             {
                 Console.WriteLine(ex.Message);
                 return null;
+            }
+        }
+
+        static string RemoveExtraWhiteSpace(string input)
+        {
+            // Use regular expression to replace multiple consecutive whitespaces with a single space
+            string pattern = @"\s+";
+            string replacement = " ";
+            Regex regex = new Regex(pattern);
+            string result = regex.Replace(input, replacement);
+
+            return result;
+        }
+
+        /// <summary>
+        /// Processes and extracts the date from the card outline. 
+        /// </summary>
+        /// <param name="jobCard"></param>
+        /// <returns>The number of days since job was posted, or an empty string if something went wrong.</returns>
+        private static string ExtractDate(IWebElement jobCard)
+        {
+            try
+            {
+                IWebElement dateElement = jobCard.FindElement(By.CssSelector(".date"));
+                string dateElementText = dateElement.Text;
+                string postedAtText = dateElementText;
+
+                if (dateElementText.Contains("•"))
+                {
+                    string[] dateElementTextArray = dateElementText.Split("•");
+                    postedAtText = dateElementTextArray[0];
+                    string applications = dateElementTextArray[1]
+                        .Replace("applications", "")
+                        .Replace("in progress", "")
+                        .Trim();
+                }
+
+                string postedAt = postedAtText
+                    .Replace("Posted", "")
+                    .Replace("Employer", "")
+                    .Replace("Active", "")
+                    .Trim();
+                return $"({DateTime.UtcNow}) {postedAt}";
+            }
+            catch (NoSuchElementException ex)
+            {
+                Console.WriteLine(ex);
+                return string.Empty;
+            }
+        }
+
+        /// <summary>
+        /// Extracts the job description from the appropriate element. 
+        /// </summary>
+        /// <param name="driver"></param>
+        /// <returns></returns>
+        private static string ExtractDescription(IWebElement detailsElement)
+        {
+            try
+            {
+                var descriptionElement = detailsElement.FindElement(By.Id("jobDescriptionText"));
+                string description = descriptionElement.Text;
+                return description;
+            }
+
+            catch (Exception ex)
+            {
+                Console.WriteLine(ex.Message);
+                return string.Empty;
             }
         }
 
@@ -235,11 +314,16 @@ namespace WebScraper.ScrapingLogic
                 {
                     IWebElement payElement = div.FindElement(By.XPath("following-sibling::*"));
                     pay = payElement.Text;
+
                 }
-                else if (div.Text == "Job Type")
+                else if (div.Text.Contains("type"))
                 {
-                    IWebElement jobTypeElement = div.FindElement(By.XPath("following-sibling::*"));
-                    jobType = jobTypeElement.Text;
+                    // this feels very brittle... but only way I could extract job type 
+                    string replaceString = "Job type\r\n";
+                    jobType = div.Text.Replace(replaceString, "");
+                    // there is a second element that comes after this that is just "Job Type", we want to avoid this one, so break after we find first 
+                    // "Job type\r\n{job type}" element
+                    break;
                 }
             }
         }
@@ -256,6 +340,8 @@ namespace WebScraper.ScrapingLogic
                 Console.WriteLine($"Link: {jobDetails.Link}");
                 Console.WriteLine($"Pay: {jobDetails.Salary}");
                 Console.WriteLine($"JobType: {jobDetails.Type}");
+                Console.WriteLine($"Date Posted: {jobDetails.Date}");
+                Console.WriteLine($"Description: {jobDetails.Description}");
                 Console.WriteLine("------------------------------");
             }
         }
@@ -285,4 +371,5 @@ namespace WebScraper.ScrapingLogic
             }
         }
     }
+    #endregion
 }
